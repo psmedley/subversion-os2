@@ -47,6 +47,9 @@
 #include <signal.h>
 #include <termios.h>
 #endif
+#ifdef __OS2__
+#include <conio.h>
+#endif
 
 
 
@@ -299,7 +302,11 @@ static svn_error_t *
 terminal_getc(int *code, terminal_handle_t *terminal,
               svn_boolean_t can_erase, apr_pool_t *pool)
 {
+#ifndef __OS2__
   const svn_boolean_t echo = !terminal->noecho;
+#else
+  const svn_boolean_t echo = 0;
+#endif
   apr_status_t status = APR_SUCCESS;
   char ch;
 
@@ -370,6 +377,83 @@ terminal_getc(int *code, terminal_handle_t *terminal,
         }
       return SVN_NO_ERROR;
     }
+#elif __OS2__
+  if (!terminal->infd)
+    {
+      /* See terminal_open; we're using Console I/O. */
+
+      /*  The following was hoisted from APR's getpass for Windows. */
+      int concode = getch();
+      switch (concode)
+        {
+        case '\r':                      /* end-of-line */
+          *code = TERMINAL_EOL;
+          if (echo) {
+            fprintf(stderr,"\r\n");
+            fflush(stderr);
+          }
+          break;
+
+        case EOF:                       /* end-of-file */
+#if 0
+        case 26:                        /* Ctrl+Z */
+          *code = TERMINAL_EOF;
+          if (echo) {
+            _cputs(("concode == EOF ? "[EOF]\r\n" : "^Z\r\n"));
+            fprintf(stderr,"\r\n");
+            fflush(stderr);
+          }
+          break;
+#endif
+        case 3:                         /* Ctrl+C, Ctrl+Break */
+          /* getch() bypasses Ctrl+C but not Ctrl+Break detection! */
+          if (echo) {
+            fprintf(stderr,"^C\r\n");
+            fflush(stderr);
+          }
+          return svn_error_create(SVN_ERR_CANCELLED, NULL, NULL);
+
+        case 0:                         /* Function code prefix */
+        case 0xE0:
+          concode = (concode << 4) | getch();
+          /* Catch {DELETE}, {<--}, Num{DEL} and Num{<--} */
+          if (concode == 0xE53 || concode == 0xE4B
+              || concode == 0x053 || concode == 0x04B)
+            {
+              *code = TERMINAL_DEL;
+              if (can_erase) {
+                fprintf(stderr,"\b \b");
+                fflush(stderr);
+              }
+            }
+          else
+            {
+              *code = TERMINAL_NONE;
+              putchar('\a');
+            }
+          break;
+
+        case '\b':                      /* BS */
+        case 127:                       /* DEL */
+          *code = TERMINAL_DEL;
+          if (can_erase)
+            fprintf(stdout,"\b \b");
+          break;
+
+        default:
+          if (!apr_iscntrl(concode))
+            {
+              *code = (int)(unsigned char)concode;
+              putchar(echo ? concode : '*');
+            }
+          else
+            {
+              *code = TERMINAL_NONE;
+              putchar('\a');
+            }
+        }
+      return SVN_NO_ERROR;
+    }
 #elif defined(HAVE_TERMIOS_H)
   if (terminal->restore_state)
     {
@@ -432,7 +516,7 @@ terminal_getc(int *code, terminal_handle_t *terminal,
 #endif /* HAVE_TERMIOS_H */
 
   /* Fall back to plain stream-based I/O. */
-#ifndef WIN32
+#if !defined(WIN32) && !defined(__OS2__)
   /* Wait for input on termin. This code is based on
      apr_wait_for_io_or_timeout().
      Note that this will return an EINTR on a signal. */
