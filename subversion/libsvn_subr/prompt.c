@@ -378,7 +378,7 @@ terminal_getc(int *code, terminal_handle_t *terminal,
       return SVN_NO_ERROR;
     }
 #elif __OS2__
-  if (!terminal->infd)
+/*  if (!terminal->infd)*/
     {
       /* See terminal_open; we're using Console I/O. */
 
@@ -394,12 +394,12 @@ terminal_getc(int *code, terminal_handle_t *terminal,
           }
           break;
 
-        case EOF:                       /* end-of-file */
 #if 0
+        case EOF:                       /* end-of-file */
         case 26:                        /* Ctrl+Z */
           *code = TERMINAL_EOF;
           if (echo) {
-            _cputs(("concode == EOF ? "[EOF]\r\n" : "^Z\r\n"));
+            _cputs((concode == EOF ? "[EOF]\r\n" : "^Z\r\n"));
             fprintf(stderr,"\r\n");
             fflush(stderr);
           }
